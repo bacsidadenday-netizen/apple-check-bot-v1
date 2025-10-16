@@ -61,9 +61,13 @@ def save_watchlist():
         json.dump(watchlist, f, ensure_ascii=False, indent=2)
 
 def check_stock(part_number, location):
-    # --- CHẾ ĐỘ TEST GIẢ LẬP ---
     if location == "TEST_STORE":
-        return ["Apple Store TEST_STORE"]
+        return [{
+            "name": "Apple Store TEST_STORE",
+            "address": "123 Test Street, Tokyo",
+            "phone": "03-0000-0000",
+            "email": "teststore@apple.com"
+        }]
 
     url = f"https://www.apple.com/jp/shop/retail/pickup-message?parts.0={part_number}&location={location}"
     try:
@@ -74,11 +78,17 @@ def check_stock(part_number, location):
         for s in stores:
             info = s.get("partsAvailability", {}).get(part_number, {})
             if info.get("pickupDisplay") == "available":
-                available.append(s.get("storeName"))
+                available.append({
+                    "name": s.get("storeName"),
+                    "address": s.get("address", {}).get("address", "Không rõ địa chỉ"),
+                    "phone": s.get("phoneNumber", "Không có số điện thoại"),
+                    "email": s.get("storeEmail", "Không có email")
+                })
         return available
     except Exception as e:
         print("⚠️ API error:", e)
         return []
+
 
 # --- GIAO DIỆN ---
 def show_main_menu(chat_id):
@@ -137,15 +147,22 @@ def handle_update(update):
             show_watchlist(chat_id)
 
         elif text == "📦 Kiểm tra trạng thái":
-            msg = "📦 Trạng thái:\n"
+            msg = "📦 Trạng thái theo dõi:\n\n"
             for key, part in watchlist.items():
                 product, location = key.split(" | ")
-                available = check_stock(part, location)
-                if available:
-                    msg += f"✅ {product}: có tại {', '.join(available)}\n"
+                available_stores = check_stock(part, location)
+                if available_stores:
+                    msg += f"✅ {product}:\n"
+                    for s in available_stores:
+                        msg += (
+                            f"🏬 {s['name']}\n"
+                            f"📍 {s['address']}\n"
+                            f"📞 {s['phone']}\n"
+                            f"📧 {s['email']}"
+                        )
                 else:
-                    msg += f"❌ {product} tại {location}: hết hàng\n"
-            send_message(msg, chat_id)
+                    msg += f"❌ {product} tại {location}: HẾT HÀNG\n\n"
+            send_message(msg.strip(), chat_id)
 
         elif text == "🧪 Test báo có hàng" or text == "/test":
             product_name = "Test iPhone"
@@ -156,7 +173,19 @@ def handle_update(update):
             save_watchlist()
             send_message(f"👀 Đã thêm theo dõi:\n📱 {product_name}\n🏬 {store}\n\nBot sẽ nhắc bạn khi sản phẩm có hàng tại {store}", chat_id)
             # Gửi tin nhắn giả lập có hàng
-            send_message(f"🚨 Có hàng!\n📱 {product_name}\n🏬 Apple Store {store}", chat_id)
+            #send_message(f"🚨 Có hàng!\n📱 {product_name}\n🏬 Apple Store {store}", chat_id)
+            available = check_stock(part_number, store)
+            if available:
+                s = available[0]
+                send_message(
+                    f"🚨 Có hàng!\n"
+                    f"📱 {product_name}\n"
+                    f"🏬 {s['name']}\n"
+                    f"📍 {s['address']}\n"
+                    f"📞 {s['phone']}\n"
+                    f"📧 {s['email']}",
+                    chat_id
+                )
 
     elif callback:
         data = callback.get("data", "")
@@ -196,10 +225,19 @@ def auto_check():
     while True:
         for key, part in watchlist.items():
             product, location = key.split(" | ")
-            available = check_stock(part, location)
-            if available:
-                send_message(f"🚨 Có hàng!\n📱 {product}\n🏬 {', '.join(available)}")
+            available_stores = check_stock(part, location)
+            if available_stores:
+                for s in available_stores:
+                    send_message(
+                        f"🚨 Có hàng!\n"
+                        f"📱 {product}\n"
+                        f"🏬 {s['name']}\n"
+                        f"📍 {s['address']}\n"
+                        f"📞 {s['phone']}\n"
+                        f"📧 {s['email']}"
+                    )
         time.sleep(120)
+
 
 # --- MAIN ---
 if __name__ == "__main__":
