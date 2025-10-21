@@ -3,6 +3,7 @@ import time
 import json
 import os
 import threading
+import random
 from flask import Flask
 
 # --- PING SERVER REPLIT ---
@@ -22,7 +23,7 @@ threading.Thread(target=run_web, daemon=True).start()
 
 # --- CONFIG ---
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-PASSWORD = os.getenv("BOT_PASSWORD", "")  #Mật khẩu đăng nhập bot
+PASSWORD = os.getenv("BOT_PASSWORD", "")  # Mật khẩu đăng nhập bot
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # --- FILE LƯU DANH SÁCH ---
@@ -107,12 +108,15 @@ def check_stock(part_number, location):
             "email": "teststore@apple.com"
         }]
 
-    url = f"https://www.apple.com/jp/shop/retail/pickup-message?parts.0={part_number}&location={location}"
+    ts = int(time.time() * 1000) + random.randint(0, 999)
+    url = f"https://www.apple.com/jp/shop/retail/pickup-message?parts.0={part_number}&location={location}&_={ts}"
+
     try:
         res = requests.get(url, timeout=10)
         data = res.json()
         stores = data.get("body", {}).get("stores", [])
         available = []
+
         for s in stores:
             info = s.get("partsAvailability", {}).get(part_number, {})
             if info.get("pickupDisplay") == "available":
@@ -127,6 +131,7 @@ def check_stock(part_number, location):
                     s.get("storeEmail", "Không có email")
                 })
         return available
+
     except Exception as e:
         print("⚠️ API error:", e)
         return []
@@ -228,20 +233,55 @@ def handle_update(update):
         elif text == "📋 Danh sách theo dõi":
             show_watchlist(chat_id)
         elif text == "📦 Kiểm tra trạng thái":
-            msg = "📦 Trạng thái theo dõi:\n\n"
+            # 🔹 Hiệu ứng typing
+            requests.post(f"{BASE_URL}/sendChatAction",
+                          data={
+                              "chat_id": chat_id,
+                              "action": "typing"
+                          })
+            time.sleep(1.5)
+
+            # 🔹 Gửi tin nhắn chờ
+            waiting = requests.post(
+                f"{BASE_URL}/sendMessage",
+                data={
+                    "chat_id":
+                    chat_id,
+                    "text":
+                    "🔍 Đang kiểm tra trạng thái từ Apple... vui lòng chờ trong giây lát ⏳"
+                },
+            ).json()
+
+            # 🔹 Kiểm tra từng sản phẩm
+            msg = "📦 **Trạng thái theo dõi hiện tại:**\n\n"
+            has_available = False
             for key, part in watchlist.items():
                 product, location = key.split(" | ")
                 available_stores = check_stock(part, location)
                 if available_stores:
-                    msg += f"✅ {product}:\n"
+                    has_available = True
+                    msg += f"✅ *{product}* tại *{location}*:\n"
                     for s in available_stores:
                         msg += (f"🏬 {s['name']}\n"
                                 f"📍 {s['address']}\n"
                                 f"📞 {s['phone']}\n"
                                 f"📧 {s['email']}\n\n")
                 else:
-                    msg += f"❌ {product} tại {location}: HẾT HÀNG\n\n"
-            send_message(msg.strip(), chat_id)
+                    msg += f"❌ *{product}* tại *{location}*: HẾT HÀNG\n\n"
+
+            if not has_available:
+                msg += "🚫 Hiện tại không có sản phẩm nào còn hàng.\n\n"
+
+            # 🔹 Cập nhật lại tin nhắn
+            requests.post(
+                f"{BASE_URL}/editMessageText",
+                data={
+                    "chat_id": chat_id,
+                    "message_id": waiting["result"]["message_id"],
+                    "text": msg.strip(),
+                    "parse_mode": "Markdown"
+                },
+            )
 
         elif text == "🧪 Test báo có hàng" or text == "/test":
             product_name = "Test iPhone"
@@ -298,18 +338,20 @@ def handle_update(update):
 
 # --- TỰ ĐỘNG KIỂM TRA ---
 def auto_check():
-    last_available = {}  # Ghi nhớ trạng thái trước đó
+    last_available = {}
+    print("🔁 Bắt đầu vòng kiểm tra tự động...")
 
     while True:
-        for key, part in watchlist.items():
+        for key, part in list(watchlist.items()):
             product, location = key.split(" | ")
+            time.sleep(1)
+
             available_stores = check_stock(part, location)
             is_available = bool(available_stores)
-
             prev_state = last_available.get(key, False)
 
-            # Nếu mới có hàng (trước đó hết hàng) -> gửi thông báo
             if is_available and not prev_state:
+                print(f"📦 {product} tại {location}: CÓ HÀNG")
                 for s in available_stores:
                     for user in authorized_users:
                         send_message(
@@ -320,13 +362,12 @@ def auto_check():
                             f"📞 {s['phone']}\n"
                             f"📧 {s['email']}", user)
 
-            # Nếu hết hàng sau khi có hàng → có thể báo lại (nếu muốn)
             elif not is_available and prev_state:
+                print(f"❌ {product} tại {location}: Hết hàng trở lại")
                 for user in authorized_users:
                     send_message(f"❌ {product} tại {location} đã hết hàng.",
                                  user)
 
-            # Cập nhật trạng thái
             last_available[key] = is_available
 
         time.sleep(120)

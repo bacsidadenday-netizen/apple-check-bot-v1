@@ -1,3 +1,10 @@
 {
-  "ip17pm_256_cosmic | Shinjuku": "MFY94J/A"
+  "ip17pm_256_cosmic | Shinjuku": "MFY94J/A",
+  "ip17pm_512_cosmic | Shinjuku": "MFYD4J/A",
+  "ip17pm_512_cosmic | Shibuya": "MFYD4J/A",
+  "ip17pm_256_cosmic | Ginza": "MFY94J/A",
+  "ip17pm_256_cosmic | Shibuya": "MFY94J/A",
+  "ip17pm_256_cosmic | Marunouchi": "MFY94J/A",
+  "ip17pm_512_blue | Shinjuku": "MFYE4J/A",
+  "ip17pm_512_white | Fukuoka": "MFYC4J/A"
 }
