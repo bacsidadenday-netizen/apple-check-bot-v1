@@ -3,14 +3,31 @@ import time
 import json
 import os
 import threading
+from flask import Flask
+
+# --- PING SERVER REPLIT ---
+app = Flask('')
+
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+
+def run_web():
+    app.run(host='0.0.0.0', port=8080)
+
+
+threading.Thread(target=run_web, daemon=True).start()
 
 # --- CONFIG ---
-TOKEN = "7803508645:AAHGCBGjZGqhdQtZbdQiWLcxsu-2rsuvwSo"
-CHAT_ID = "-4849608560"
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+PASSWORD = os.getenv("BOT_PASSWORD", "")  #Mật khẩu đăng nhập bot
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # --- FILE LƯU DANH SÁCH ---
 WATCHLIST_FILE = "watchlist.json"
+AUTH_FILE = "authorized.json"
 
 # --- DỮ LIỆU CỐ ĐỊNH ---
 PRODUCTS = {
@@ -30,24 +47,17 @@ PRODUCTS = {
 
 STORES = [
     "Shinjuku", "Ginza", "Omotesando", "Marunouchi", "Shibuya", "Roppongi",
-    "Yokohama", "Nagoya Sakae", "Fukuoka", "Sapporo",
-    "Osaka Shinsaibashi", "Kobe", "Sendai Ichibancho"
+    "Yokohama", "Nagoya Sakae", "Fukuoka", "Sapporo", "Osaka Shinsaibashi",
+    "Kobe", "Sendai Ichibancho"
 ]
 
 # --- GLOBAL ---
 watchlist = {}
 user_state = {}
+authorized_users = set()
 
-# --- HÀM TIỆN ÍCH ---
-def send_message(text, chat_id=CHAT_ID, reply_markup=None):
-    payload = {"chat_id": chat_id, "text": text}
-    if reply_markup:
-        payload["reply_markup"] = json.dumps(reply_markup)
-    try:
-        requests.post(f"{BASE_URL}/sendMessage", data=payload, timeout=10)
-    except Exception as e:
-        print("❌ Telegram error:", e)
 
+# --- TIỆN ÍCH LƯU / TẢI ---
 def load_watchlist():
     global watchlist
     if os.path.exists(WATCHLIST_FILE):
@@ -56,10 +66,38 @@ def load_watchlist():
     else:
         watchlist = {}
 
+
 def save_watchlist():
     with open(WATCHLIST_FILE, "w", encoding="utf-8") as f:
         json.dump(watchlist, f, ensure_ascii=False, indent=2)
 
+
+def load_auth():
+    global authorized_users
+    if os.path.exists(AUTH_FILE):
+        with open(AUTH_FILE, "r") as f:
+            authorized_users = set(json.load(f))
+    else:
+        authorized_users = set()
+
+
+def save_auth():
+    with open(AUTH_FILE, "w") as f:
+        json.dump(list(authorized_users), f)
+
+
+# --- GỬI TIN NHẮN ---
+def send_message(text, chat_id, reply_markup=None):
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    try:
+        requests.post(f"{BASE_URL}/sendMessage", data=payload, timeout=10)
+    except Exception as e:
+        print("❌ Telegram error:", e)
+
+
+# --- KIỂM TRA KHO ---
 def check_stock(part_number, location):
     if location == "TEST_STORE":
         return [{
@@ -79,10 +117,14 @@ def check_stock(part_number, location):
             info = s.get("partsAvailability", {}).get(part_number, {})
             if info.get("pickupDisplay") == "available":
                 available.append({
-                    "name": s.get("storeName"),
-                    "address": s.get("address", {}).get("address", "Không rõ địa chỉ"),
-                    "phone": s.get("phoneNumber", "Không có số điện thoại"),
-                    "email": s.get("storeEmail", "Không có email")
+                    "name":
+                    s.get("storeName"),
+                    "address":
+                    s.get("address", {}).get("address", "Không rõ địa chỉ"),
+                    "phone":
+                    s.get("phoneNumber", "Không có số điện thoại"),
+                    "email":
+                    s.get("storeEmail", "Không có email")
                 })
         return available
     except Exception as e:
@@ -94,26 +136,46 @@ def check_stock(part_number, location):
 def show_main_menu(chat_id):
     keyboard = {
         "keyboard": [
-            [{"text": "➕ Theo dõi sản phẩm"}],
-            [{"text": "📋 Danh sách theo dõi"}],
-            [{"text": "📦 Kiểm tra trạng thái"}],
-            [{"text": "🧪 Test báo có hàng"}],
+            [{
+                "text": "➕ Theo dõi sản phẩm"
+            }],
+            [{
+                "text": "📋 Danh sách theo dõi"
+            }],
+            [{
+                "text": "📦 Kiểm tra trạng thái"
+            }],
+            [{
+                "text": "🧪 Test báo có hàng"
+            }],
         ],
-        "resize_keyboard": True
+        "resize_keyboard":
+        True
     }
     send_message("🤖 Chọn thao tác:", chat_id, keyboard)
 
+
 def show_product_selection(chat_id):
-    keyboard = {"inline_keyboard": [
-        [{"text": name, "callback_data": f"select_product|{name}"}] for name in PRODUCTS.keys()
-    ]}
+    keyboard = {
+        "inline_keyboard": [[{
+            "text": name,
+            "callback_data": f"select_product|{name}"
+        }] for name in PRODUCTS.keys()]
+    }
     send_message("📱 Chọn sản phẩm muốn theo dõi:", chat_id, keyboard)
 
+
 def show_store_selection(chat_id, product_name):
-    keyboard = {"inline_keyboard": [
-        [{"text": store, "callback_data": f"select_store|{product_name}|{store}"}] for store in STORES
-    ]}
+    keyboard = {
+        "inline_keyboard": [[{
+            "text":
+            store,
+            "callback_data":
+            f"select_store|{product_name}|{store}"
+        }] for store in STORES]
+    }
     send_message(f"🏬 Chọn cửa hàng cho:\n{product_name}", chat_id, keyboard)
+
 
 def show_watchlist(chat_id):
     if not watchlist:
@@ -123,10 +185,14 @@ def show_watchlist(chat_id):
     msg = "📋 Danh sách theo dõi:\n\n"
     for key in watchlist.keys():
         msg += f"• {key}\n"
-        keyboard["inline_keyboard"].append([
-            {"text": f"❌ Xóa {key}", "callback_data": f"delete_watch|{key}"}
-        ])
+        keyboard["inline_keyboard"].append([{
+            "text":
+            f"❌ Xóa {key}",
+            "callback_data":
+            f"delete_watch|{key}"
+        }])
     send_message(msg, chat_id, keyboard)
+
 
 # --- XỬ LÝ UPDATE ---
 def handle_update(update):
@@ -137,15 +203,30 @@ def handle_update(update):
         text = message.get("text", "")
         chat_id = message["chat"]["id"]
 
+        # --- KIỂM TRA XÁC THỰC ---
+        if chat_id not in authorized_users:
+            if text.startswith("/start"):
+                send_message("🔒 Vui lòng nhập mật khẩu để sử dụng bot:",
+                             chat_id)
+            elif text.strip() == PASSWORD:
+                authorized_users.add(chat_id)
+                save_auth()
+                send_message("✅ Đăng nhập thành công! Bạn có thể sử dụng bot.",
+                             chat_id)
+                show_main_menu(chat_id)
+            else:
+                send_message(
+                    "❌ Sai mật khẩu hoặc chưa nhập mật khẩu. Gõ /start để thử lại.",
+                    chat_id)
+            return
+
+        # --- NGƯỜI DÙNG ĐÃ XÁC THỰC ---
         if text == "/start":
             show_main_menu(chat_id)
-
         elif text == "➕ Theo dõi sản phẩm":
             show_product_selection(chat_id)
-
         elif text == "📋 Danh sách theo dõi":
             show_watchlist(chat_id)
-
         elif text == "📦 Kiểm tra trạng thái":
             msg = "📦 Trạng thái theo dõi:\n\n"
             for key, part in watchlist.items():
@@ -154,12 +235,10 @@ def handle_update(update):
                 if available_stores:
                     msg += f"✅ {product}:\n"
                     for s in available_stores:
-                        msg += (
-                            f"🏬 {s['name']}\n"
-                            f"📍 {s['address']}\n"
-                            f"📞 {s['phone']}\n"
-                            f"📧 {s['email']}"
-                        )
+                        msg += (f"🏬 {s['name']}\n"
+                                f"📍 {s['address']}\n"
+                                f"📞 {s['phone']}\n"
+                                f"📧 {s['email']}\n\n")
                 else:
                     msg += f"❌ {product} tại {location}: HẾT HÀNG\n\n"
             send_message(msg.strip(), chat_id)
@@ -171,21 +250,14 @@ def handle_update(update):
             key = f"{product_name} | {store}"
             watchlist[key] = part_number
             save_watchlist()
-            send_message(f"👀 Đã thêm theo dõi:\n📱 {product_name}\n🏬 {store}\n\nBot sẽ nhắc bạn khi sản phẩm có hàng tại {store}", chat_id)
-            # Gửi tin nhắn giả lập có hàng
-            #send_message(f"🚨 Có hàng!\n📱 {product_name}\n🏬 Apple Store {store}", chat_id)
             available = check_stock(part_number, store)
             if available:
                 s = available[0]
                 send_message(
-                    f"🚨 Có hàng!\n"
-                    f"📱 {product_name}\n"
-                    f"🏬 {s['name']}\n"
-                    f"📍 {s['address']}\n"
-                    f"📞 {s['phone']}\n"
-                    f"📧 {s['email']}",
-                    chat_id
-                )
+                    f"🚨 Có hàng!\n📱 {product_name}\n🏬 {s['name']}\n📍 {s['address']}\n📞 {s['phone']}\n📧 {s['email']}",
+                    chat_id)
+            else:
+                send_message("❌ Hiện tại chưa có hàng.", chat_id)
 
     elif callback:
         data = callback.get("data", "")
@@ -205,11 +277,14 @@ def handle_update(update):
 
             available = check_stock(part_number, store)
             if available:
-                status = f"✅ Hiện CÓ HÀNG tại {', '.join(available)}"
+                store_names = [s['name'] for s in available]
+                status = f"✅ Hiện CÓ HÀNG tại {', '.join(store_names)}"
             else:
                 status = f"❌ Hiện tại HẾT HÀNG ở {store}"
 
-            send_message(f"👀 Đã thêm theo dõi:\n📱 {PRODUCTS[product_name][0]}\n🏬 {store}\n\n{status}\n\nBot sẽ nhắc bạn khi sản phẩm có hàng tại {store}", chat_id)
+            send_message(
+                f"👀 Đã thêm theo dõi:\n📱 {PRODUCTS[product_name][0]}\n🏬 {store}\n\n{status}\n\nBot sẽ nhắc bạn khi sản phẩm có hàng tại {store}",
+                chat_id)
             show_main_menu(chat_id)
 
         elif data.startswith("delete_watch|"):
@@ -220,37 +295,60 @@ def handle_update(update):
                 send_message(f"🗑️ Đã xóa khỏi danh sách: {key}", chat_id)
             show_watchlist(chat_id)
 
+
 # --- TỰ ĐỘNG KIỂM TRA ---
 def auto_check():
+    last_available = {}  # Ghi nhớ trạng thái trước đó
+
     while True:
         for key, part in watchlist.items():
             product, location = key.split(" | ")
             available_stores = check_stock(part, location)
-            if available_stores:
+            is_available = bool(available_stores)
+
+            prev_state = last_available.get(key, False)
+
+            # Nếu mới có hàng (trước đó hết hàng) -> gửi thông báo
+            if is_available and not prev_state:
                 for s in available_stores:
-                    send_message(
-                        f"🚨 Có hàng!\n"
-                        f"📱 {product}\n"
-                        f"🏬 {s['name']}\n"
-                        f"📍 {s['address']}\n"
-                        f"📞 {s['phone']}\n"
-                        f"📧 {s['email']}"
-                    )
+                    for user in authorized_users:
+                        send_message(
+                            f"🚨 Có hàng!\n"
+                            f"📱 {product}\n"
+                            f"🏬 {s['name']}\n"
+                            f"📍 {s['address']}\n"
+                            f"📞 {s['phone']}\n"
+                            f"📧 {s['email']}", user)
+
+            # Nếu hết hàng sau khi có hàng → có thể báo lại (nếu muốn)
+            elif not is_available and prev_state:
+                for user in authorized_users:
+                    send_message(f"❌ {product} tại {location} đã hết hàng.",
+                                 user)
+
+            # Cập nhật trạng thái
+            last_available[key] = is_available
+
         time.sleep(120)
 
 
 # --- MAIN ---
 if __name__ == "__main__":
     load_watchlist()
+    load_auth()
     print("🤖 Bot đang chạy... Watchlist:", watchlist)
-    send_message("🤖 Bot Apple Checker đã khởi động! Nhấn '/start' để bắt đầu theo dõi sản phẩm")
 
     threading.Thread(target=auto_check, daemon=True).start()
 
     last_update_id = None
     while True:
         try:
-            res = requests.get(f"{BASE_URL}/getUpdates", params={"offset": last_update_id, "timeout": 30}, timeout=35)
+            res = requests.get(f"{BASE_URL}/getUpdates",
+                               params={
+                                   "offset": last_update_id,
+                                   "timeout": 30
+                               },
+                               timeout=35)
             data = res.json()
             for update in data.get("result", []):
                 last_update_id = update["update_id"] + 1
